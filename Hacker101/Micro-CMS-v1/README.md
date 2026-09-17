@@ -1,178 +1,128 @@
 # Hacker101 — Micro-CMS v1
 
-## 📌 Challenge Overview
-
 **Platform:** Hacker101 CTF
 **Challenge:** Micro-CMS v1
 **Category:** Web Security
-**Difficulty:** Beginner / Intermediate
 
-Micro-CMS v1 is a vulnerable web application that simulates a basic content management system. The challenge involves analyzing its functionality, enumerating endpoints, manipulating parameters, and identifying vulnerabilities in how the application handles user input and authorization.
+## 🧩 About the Challenge
 
----
+Micro-CMS v1 looked pretty simple at first. It was basically a small CMS where I could view pages, create pages and edit them.
 
-## 🎯 Objectives
+I started by just looking around and trying to understand how the application worked instead of immediately throwing complicated payloads at it. I changed page numbers, checked different URLs, looked at the responses, and tested what happened when I modified the input.
 
-The challenge involved identifying multiple vulnerabilities and using them to retrieve the challenge flags.
+That eventually led me to three flags covering:
 
-The main areas investigated were:
-
-* Web application reconnaissance
-* Endpoint enumeration
-* Parameter manipulation
 * SQL Injection
-* Access control
 * Stored Cross-Site Scripting (XSS)
-* HTML/source-code inspection
+* Broken Access Control
 
 ---
 
-# 🔎 Reconnaissance
+# 🔎 Starting the Recon
 
-The application exposed several page-related endpoints.
+The first thing I noticed was that the application used page IDs directly in the URL.
+
+For example:
 
 ```text
 /page/1
 /page/2
 /page/create
+```
+
+There was also an edit functionality:
+
+```text
 /page/edit/<id>
 ```
 
-The application allowed users to:
+I started changing the page numbers and checking what happened.
 
-* View existing pages
-* Create new pages
-* Edit existing pages
-* Submit a title and body
-* Render Markdown and HTML content
+Some of the responses I got were:
 
-The page creation and editing forms contained `title` and `body` parameters and did not contain a hidden page ID field.
+| Endpoint       | Response      |
+| -------------- | ------------- |
+| `/page/1`      | Accessible    |
+| `/page/2`      | Accessible    |
+| `/page/3`      | 404           |
+| `/page/4`      | 403 Forbidden |
+| `/page/edit/4` | Accessible    |
 
-### Initial observations
-
-During endpoint enumeration, different page IDs produced different responses:
-
-| Endpoint       | Response   |
-| -------------- | ---------- |
-| `/page/1`      | Accessible |
-| `/page/2`      | Accessible |
-| `/page/3`      | 404        |
-| `/page/4`      | 403        |
-| `/page/edit/4` | Accessible |
-
-This difference in behavior became important later in the challenge.
+The difference with page 4 stood out to me, so I kept that in mind and continued testing.
 
 ---
 
-# 🚩 Flag 1 — SQL Injection
+# 🚩 Flag 0 — SQL Injection
 
-### Hint
+### How I approached it
 
-> Look at the sequence of IDs.
+Since the page ID was being passed directly through the URL, I wanted to see how the application handled something that wasn't a normal number.
 
-The application used numerical page IDs in its URLs.
-
-I tested how the application handled unexpected input in the page ID parameter.
-
-The following request produced abnormal behavior:
+I started with a very simple test:
 
 ```text
 /page/edit/1'
 ```
 
-Instead of behaving like a normal invalid page ID, the application returned a challenge flag.
+I wasn't expecting a lot from just adding a quote, but the application's behaviour changed and it revealed **Flag 0**.
 
-### Vulnerability Identified
+That immediately made me think that the page ID might be reaching a SQL query without being handled safely.
+
+### What I found
+
+The vulnerable functionality was:
+
+```text
+/page/edit/<id>
+```
+
+The simple test:
+
+```text
+/page/edit/1'
+```
+
+was enough to show that the input was affecting the backend database operation.
+
+My testing path was basically:
+
+```text
+Normal page ID
+      ↓
+/page/edit/1
+      ↓
+Modify the ID
+      ↓
+/page/edit/1'
+      ↓
+Unexpected behaviour
+      ↓
+Flag 0
+```
+
+### Vulnerability
 
 **SQL Injection**
 
-The behavior indicated that the page ID was being incorporated into a backend database query without adequate parameterization or validation.
+The likely underlying problem is that user-controlled input is being incorporated into a database query without proper parameterization.
 
-### Attack Surface
+### What I learned
 
-```text
-/page/edit/<id>
-```
+This was a good reminder that even something as simple as a page number is still **user input**.
 
-### Key Observation
+A parameter being expected to contain an integer doesn't make it automatically safe.
 
-A single quote appended to the page ID altered the application's behavior:
-
-```text
-/page/edit/1'
-```
-
-This is a strong indication that user-controlled input was reaching an SQL query unsafely.
-
-### Recommended Remediation
-
-* Use prepared statements / parameterized queries.
-* Validate page IDs as integers.
-* Never concatenate user input directly into SQL queries.
-* Perform validation server-side.
+A proper implementation should use parameterized queries/prepared statements and validate the ID server-side.
 
 ---
 
-# 🚩 Flag 2 — Broken Access Control
+# 🚩 Flag 1 — Stored Cross-Site Scripting
 
-During enumeration, page `4` returned:
+This was the part where I started experimenting more with the page creation functionality.
 
-```text
-/page/4
-```
+The application allowed me to create pages and enter content into the title and body. Since the application mentioned Markdown, I wanted to see what happened with HTML and JavaScript.
 
-with a:
-
-```text
-403 Forbidden
-```
-
-However, the corresponding edit endpoint was accessible:
-
-```text
-/page/edit/4
-```
-
-This exposed functionality that should have been protected by the same authorization controls.
-
-### Vulnerability Identified
-
-**Broken Access Control**
-
-The application enforced access restrictions inconsistently between related endpoints.
-
-### Attack Flow
-
-```text
-/page/4
-     ↓
-403 Forbidden
-
-/page/edit/4
-     ↓
-Accessible
-```
-
-This demonstrates why authorization must be enforced independently on every sensitive endpoint.
-
-### Recommended Remediation
-
-* Perform server-side authorization checks on every endpoint.
-* Apply access-control rules consistently across view, edit, delete, and administrative functionality.
-* Do not rely on restrictions implemented only at the UI or one route.
-* Centralize authorization logic where possible.
-
----
-
-# 🚩 Flag 3 — Stored Cross-Site Scripting
-
-The final challenge hint pointed toward:
-
-> Stored XSS
-
-The application allowed user-controlled content to be stored and subsequently rendered.
-
-Initial testing showed that some JavaScript payloads were filtered or escaped, while HTML event-handler based payloads were processed by the browser.
+I started with simple tests rather than trying to guess the final payload immediately.
 
 For example:
 
@@ -180,98 +130,239 @@ For example:
 <img src=x onerror=alert(1)>
 ```
 
-was used to test whether HTML event handlers could execute.
-
-Another payload tested was:
+I also tried:
 
 ```html
 <button onclick="alert('xss')">click</button>
 ```
 
-The important behavior was that the content was **stored by the application** and could later be encountered when the stored page was rendered.
+Some things didn't behave exactly as expected, so I started paying more attention to **what was actually being stored and what happened when I opened the page again**.
 
-The resulting page source contained the challenge flag.
+That was the important clue.
 
-### Vulnerability Identified
+I could create a page with my input, and the content remained there when the page was loaded again.
+
+So I started thinking about it as:
+
+```text
+My input
+   ↓
+Page created
+   ↓
+Input gets stored
+   ↓
+Page opened again
+   ↓
+Stored content is rendered
+   ↓
+Browser interprets it
+```
+
+After testing the stored content, I was able to trigger the behaviour that revealed **Flag 1**.
+
+### Vulnerability
 
 **Stored Cross-Site Scripting (XSS)**
 
-### Why It Is Stored XSS
+The important part here was that the payload wasn't only reflected in the immediate request. It was stored as part of the page and then processed when the stored page was viewed.
 
-The vulnerability follows this flow:
+### What this taught me
 
-```text
-Attacker-controlled input
-        ↓
-Application stores input
-        ↓
-Stored content is rendered
-        ↓
-Browser interprets the HTML/JavaScript
-        ↓
-JavaScript executes
+One thing I understood better from this challenge is that XSS isn't limited to:
+
+```html
+<script>alert(1)</script>
 ```
 
-### Recommended Remediation
+Blocking `<script>` tags doesn't necessarily make an application safe.
 
-* Apply context-aware output encoding.
-* Sanitize user-supplied HTML using a strict allowlist.
-* Do not permit arbitrary JavaScript event handlers.
-* Avoid rendering raw user-controlled HTML.
-* Implement a strong Content Security Policy (CSP) as defense-in-depth.
+HTML event handlers and other browser-executable contexts can also become dangerous if user-controlled HTML is rendered without proper sanitization or output encoding.
 
 ---
 
-# 🛡️ Security Lessons Learned
+# 🚩 Flag 2 — Broken Access Control
 
-### 1. Input validation is essential
+I had actually noticed something suspicious about page 4 earlier during reconnaissance.
 
-Even parameters expected to contain only numbers must be validated and safely handled.
-
-### 2. Authorization must be enforced server-side
-
-Restricting access to one endpoint does not automatically protect related functionality.
-
-### 3. XSS is not limited to `<script>` tags
-
-Blocking `<script>` tags alone is not sufficient. HTML event handlers and other browser-executable contexts can also introduce XSS.
-
-### 4. Understand the complete data flow
-
-For stored XSS, it is important to follow the lifecycle of the input:
+When I visited:
 
 ```text
-Input → Storage → Retrieval → Rendering → Execution
+/page/4
 ```
 
-### 5. Manual testing remains valuable
+I received:
 
-Simple URL manipulation, source inspection, and controlled input testing revealed vulnerabilities that could easily be missed by looking only at the application's visible interface.
+```text
+403 Forbidden
+```
+
+So I assumed that page 4 was restricted.
+
+But then I tried:
+
+```text
+/page/edit/4
+```
+
+and the edit page was accessible.
+
+That didn't make much sense.
+
+If I couldn't access the page itself, why could I access the functionality for editing that same page?
+
+### My thought process
+
+I compared the two endpoints:
+
+```text
+/page/4
+    ↓
+403 Forbidden
+
+/page/edit/4
+    ↓
+Accessible
+```
+
+That suggested that the access-control checks weren't being applied consistently.
+
+This led me to **Flag 2**.
+
+### Vulnerability
+
+**Broken Access Control**
+
+The application was restricting access to one endpoint while leaving related functionality accessible.
+
+The important lesson for me here was that authorization needs to be checked on the actual operation being requested.
+
+Just protecting:
+
+```text
+/page/4
+```
+
+doesn't automatically protect:
+
+```text
+/page/edit/4
+```
+
+### How it should be fixed
+
+The application should perform server-side authorization checks for every sensitive operation.
+
+Access-control rules should be applied consistently to viewing, editing, deleting and other operations involving the same resource.
 
 ---
 
-# 🧰 Tools Used
+# 🧠 What I Took Away From This Challenge
 
+### 1. Start with the application, not the exploit
+
+I didn't begin this challenge knowing exactly which payload would work.
+
+I started by looking at the URLs and asking simple questions:
+
+> What happens if I change the page number?
+
+> Why does this page give me a 403?
+
+> Why can I edit something I can't view?
+
+> What happens if I put a quote here?
+
+That approach ended up being enough to uncover the vulnerabilities.
+
+---
+
+### 2. Small changes can reveal a lot
+
+The SQL injection started with something as simple as:
+
+```text
+'
+```
+
+I think this was one of the more useful parts of the challenge because it showed me why basic manual testing is still important.
+
+You don't always need a complicated payload to discover that something is wrong.
+
+---
+
+### 3. Compare how different endpoints behave
+
+The `/page/4` and `/page/edit/4` difference was probably my biggest clue for the access-control issue.
+
+Looking at individual pages in isolation wouldn't have made the problem as obvious.
+
+Comparing related endpoints made the inconsistency stand out.
+
+---
+
+### 4. Follow the input
+
+For the XSS part, I had to stop thinking only about the payload itself and look at what happened to my input after I submitted it.
+
+The useful flow was:
+
+```text
+Input
+  ↓
+Storage
+  ↓
+Retrieval
+  ↓
+Rendering
+  ↓
+Browser execution
+```
+
+Understanding that flow made it much easier to recognise why the vulnerability was **stored XSS**.
+
+---
+
+### 5. Manual testing is actually useful
+
+For this challenge, most of my progress came from:
+
+* Changing URL parameters
+* Trying different page IDs
+* Checking HTTP responses
+* Inspecting the page
+* Testing controlled HTML/JavaScript input
+* Looking at what happened after the input was stored
+
+It was less about using a huge toolset and more about noticing small inconsistencies and following them.
+
+---
+
+# 🛠️ Tools Used
+
+* Browser
 * Browser Developer Tools
+* Network tab
 * View Page Source
-* Manual HTTP/URL manipulation
-* HTML/JavaScript testing
+* Manual URL manipulation
+* Basic HTML/JavaScript testing
 * Hacker101 CTF environment
 
----
-
-## 📚 Conclusion
-
-Micro-CMS v1 provided hands-on experience with several common web application security vulnerabilities:
-
-* **SQL Injection**
-* **Broken Access Control**
-* **Stored Cross-Site Scripting**
-
-The challenge demonstrated how seemingly simple CMS functionality can become vulnerable when input validation, database security, authorization, and output encoding are not implemented correctly.
-
-This write-up documents the methodology and security concepts used during the challenge. **Challenge flags are intentionally omitted from this public repository.**
+I solved the challenge through manual testing rather than relying on Burp Suite.
 
 ---
+
+# 📌 Final Takeaway
+
+Micro-CMS v1 initially looked like a very basic CMS, but once I started changing inputs and comparing how the different endpoints behaved, a few interesting things started appearing.
+
+The three flags I found were:
+
+| Flag       | Vulnerability         | How I got there                             |
+| ---------- | --------------------- | ------------------------------------------- |
+| **Flag 0** | SQL Injection         | Manipulating the page ID                    |
+| **Flag 1** | Stored XSS            | Testing and storing HTML/JavaScript content |
+| **Flag 2** | Broken Access Control | Comparing `/page/4` with `/page/edit/4`     |
+
+For me, the biggest takeaway wasn't just learning three vulnerability names. It was getting more comfortable with the process of **looking at an application, noticing something that doesn't make sense, and testing that observation instead of immediately moving on.**
 
 > **Disclaimer:** All testing documented here was performed against the intentionally vulnerable Hacker101 CTF environment for educational purposes.
