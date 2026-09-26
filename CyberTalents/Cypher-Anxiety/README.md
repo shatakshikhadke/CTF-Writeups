@@ -140,15 +140,8 @@ I calculated the MD5 hash of the recovered image using:
 
 The result was:
 
-    b7db3b48587c1ea2da8aee31ef42f026  decrypted.jpg
-
+    decrypted.jpg
 Therefore, the MD5 hash of the recovered image is:
-
-    b7db3b48587c1ea2da8aee31ef42f026
-
----
-
-# Flag
 
     b7db3b48587c1ea2da8aee31ef42f026
 
